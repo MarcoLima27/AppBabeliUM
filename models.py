@@ -1,7 +1,11 @@
-# -----------------------------
-# Modelos de dados
-# -----------------------------
-def new_id(prefix: str) -> str:
+from __future__ import annotations
+from dataclasses import dataclass, field
+from typing import List, Optional
+import datetime as dt
+import uuid
+
+# Função auxiliar para gerar IDs (necessária para os valores default)
+def new_id_default(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:10]}"
 
 @dataclass
@@ -17,6 +21,7 @@ class Blank:
     bid: str
     label: str  # L1, L2...
     answers: List[str] = field(default_factory=list)
+    distractors: List[str] = field(default_factory=list) # Lista de erradas (para o Dropdown)
     case_sensitive: bool = False
     feedback: str = ""
 
@@ -49,18 +54,17 @@ class Question:
     section: str = "Sem secção"
     prompt: str = ""
     meta: QuestionMeta = field(default_factory=QuestionMeta)
-    truefalse_answer: Optional[bool] = None
-    tf_require_correction: bool = False
 
     # Cloze
     blanks: List[Blank] = field(default_factory=list)
 
-    # Multichoice
+    # Multichoice / V/F Múltiplo
     options: List[ChoiceOption] = field(default_factory=list)
     shuffle_options: bool = True
 
-    # True/False
+    # True/False Simples (Legado ou Único)
     truefalse_answer: Optional[bool] = None
+    tf_require_correction: bool = False # Opção de pedir correção das falsas
 
     # Matching
     pairs: List[MatchPair] = field(default_factory=list)
@@ -80,7 +84,7 @@ class TA:
     ta_id: str
     course: str = "PLE A2"
     theme: str = "Tema 1"
-    ta_name: str = "Ficha 1"  # UI chama-lhe Ficha
+    ta_name: str = "Ficha 1"
     created_at: str = field(default_factory=lambda: dt.datetime.now().isoformat(timespec="seconds"))
     status: str = "RASCUNHO"  # RASCUNHO | VALIDADO | EXPORTADO | COM ERROS
     questions: List[Question] = field(default_factory=list)
