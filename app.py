@@ -169,27 +169,23 @@ def render_ficha_editor():
 
 
 # ==============================================================================
-# VIEW 2: EDITOR DE QUESTÃO
+# VIEW 2: EDITOR DE QUESTÃO (CORRIGIDO E LIMPO)
 # ==============================================================================
 def render_question_editor():
-    # 1. Carregar ou Criar Questão de Rascunho
+    # 1. Carregar ou Criar Questão
     if "draft_q" not in st.session_state:
         if st.session_state.active_qid:
-            # Editar existente: criar cópia profunda para não alterar direto antes de salvar
             original = get_question_by_id(st.session_state.active_qid)
             st.session_state.draft_q = copy.deepcopy(original)
         else:
-            # Nova questão
             st.session_state.draft_q = Question(
-                qid=new_id("q"),
-                ui_type="Escolha múltipla (1 correta)",
-                moodle_type="multichoice_single",
-                prompt=""
+                qid=new_id("q"), ui_type="Escolha múltipla (1 correta)",
+                moodle_type="multichoice_single", prompt=""
             )
     
     q = st.session_state.draft_q
 
-    # Cabeçalho com Botão Voltar
+    # --- CABEÇALHO ---
     c_back, c_title = st.columns([1, 5])
     if c_back.button("🔙 Voltar"):
         del st.session_state.draft_q
@@ -197,207 +193,280 @@ def render_question_editor():
         st.rerun()
     c_title.subheader("Editar Questão")
 
-    # --- CONFIGURAÇÕES GERAIS ---
+    # --- BLOCO 1: CONFIGURAÇÕES ---
     with st.container(border=True):
-        col_type, col_sec, col_pts = st.columns([2, 1, 1])
+        c1, c2, c3 = st.columns([2, 1, 1])
         
-        # Seletor de Tipo (Reseta campos se mudar)
-        new_ui_type = col_type.selectbox(
-            "Tipo de Pergunta", 
-            options=list(UI_TYPES.keys()), 
-            index=list(UI_TYPES.keys()).index(q.ui_type) if q.ui_type in UI_TYPES else 0
-        )
+        # Tipo de Pergunta
+        new_ui_type = c1.selectbox("Tipo de Pergunta", options=list(UI_TYPES.keys()), 
+                                   index=list(UI_TYPES.keys()).index(q.ui_type) if q.ui_type in UI_TYPES else 0)
         
-        # Reset lógico se o tipo mudar
         if new_ui_type != q.ui_type:
             q.ui_type = new_ui_type
             q.moodle_type = UI_TYPES[new_ui_type]
-            # Reset específico
-            if q.moodle_type == "description": 
-                q.meta.points = 0.0
-                q.blanks = []
-                q.options = []
-            elif q.moodle_type == "truefalse":
-                q.options = [ChoiceOption(new_id("o"), "", True), ChoiceOption(new_id("o"), "", False)]
-                q.tf_require_correction = False
+            # Resets de segurança
+            if q.moodle_type == "truefalse":
+                q.options = [ChoiceOption(new_id("o"), "Verdadeiro", True), ChoiceOption(new_id("o"), "Falso", False)]
+            elif "multichoice" in q.moodle_type:
+                q.options = [ChoiceOption(new_id("o"), ""), ChoiceOption(new_id("o"), "")]
+            elif q.moodle_type == "matching":
+                q.pairs = [MatchPair(new_id("p"), "", "")]
             st.rerun()
 
-        q.section = col_sec.text_input("Secção / Grupo", value=q.section)
-        
+        # Pontos
         if q.moodle_type == "description":
-            col_pts.text_input("Pontos", value="0.0", disabled=True)
+            c2.text_input("Pontos", value="0.0", disabled=True)
         else:
-            q.meta.points = col_pts.number_input("Pontos", value=q.meta.points, min_value=0.1, step=0.5)
+            q.meta.points = c2.number_input("Pontos", value=q.meta.points, min_value=0.1, step=0.5)
 
-        q.title = st.text_input("Título Interno (não aparece para o aluno)", value=q.title, placeholder="Ex: Q1 - Interpretação")
+        # Secção
+        q.section = c3.text_input("Secção", value=q.section, placeholder="Ex: Gramática")
+        q.title = st.text_input("Título Interno (Opcional)", value=q.title, placeholder="Ex: Q1 - Passado Perfeito")
 
-    # --- ENUNCIADO DINÂMICO ---
     mt = q.moodle_type
-    st.markdown("### 1. Enunciado / Texto")
-    
-    placeholder_txt = "Escreva a pergunta aqui..."
-    if mt == "truefalse": placeholder_txt = "Ex: Classifique as seguintes afirmações como Verdadeiras ou Falsas..."
-    elif mt.startswith("multichoice"): placeholder_txt = "Ex: Qual a capital de França?"
-    elif mt == "cloze" or mt == "cloze_mc": placeholder_txt = "Escreva o texto e use [ ] onde quer criar as lacunas/menus."
-    elif mt == "description": placeholder_txt = "Cole aqui o texto de leitura..."
 
-    q.prompt = st.text_area("Texto", value=q.prompt, height=150, placeholder=placeholder_txt, label_visibility="collapsed")
-
-    # --- EDITORES ESPECÍFICOS POR TIPO ---
+    # --- BLOCO 2: ENUNCIADO (EM CIMA) ---
+    st.markdown("### 1. Enunciado")
     
-    # === A. CLOZE (ESCREVER & MENUS) ===
-    if mt == "cloze" or mt == "cloze_mc":
-        st.divider()
-        is_dropdown = (mt == "cloze_mc")
-        st.markdown(f"### 2. Configurar {'Menus' if is_dropdown else 'Lacunas'}")
-        
+    # AJUDA E EXEMPLOS (Só para Cloze)
+    if mt in ["cloze", "cloze_mc"]:
+        col_btn, col_help = st.columns([1, 3])
+        # Botão de inserir lacuna
+        if col_btn.button("➕ Inserir [ ]", help="Adiciona uma lacuna ao fim do texto", use_container_width=True):
+            q.prompt += " [ ] "
+            st.rerun()
+            
+        # Menu de Exemplos
+        with col_help.expander("Ver exemplos prontos"):
+            # --- A LINHA ABAIXO É A EXPLICAÇÃO QUE QUERIAS ---
+            st.info("Clique num dos botões abaixo para preencher a caixa de texto com um modelo pronto:")
+            
+            ce1, ce2 = st.columns(2)
+            if ce1.button("📝 Gramática (Verbos)"):
+                q.prompt = "Ontem, o gato [ ] (beber) leite."
+                st.rerun()
+            if ce2.button("🌍 Vocabulário"):
+                q.prompt = "O céu é [ ] (azul/verde)."
+                st.rerun()
+
+    # Área de Texto
+    placeholders = {
+        "cloze": "Ex: O gato [ ] (beber) leite ontem.",
+        "multichoice_single": "Ex: Define ",
+        "truefalse": "Ex: Classifique as afirmações sobre o texto:",
+        "matching": "Ex: Associe os países às capitais:",
+        "essay": "Ex: Escreva um texto sobre as suas férias."
+    }
+    
+    q.prompt = st.text_area(
+        "Escreva a pergunta aqui:", 
+        value=q.prompt, 
+        height=150, 
+        placeholder=placeholders.get(mt, ""),
+        label_visibility="collapsed"
+    )
+
+    # --- BLOCO 3: RESPOSTAS (EM BAIXO) ---
+    st.markdown("### 2. Definição das Respostas")
+    
+    # A. CLOZE
+    if mt in ["cloze", "cloze_mc"]:
         n_gaps = count_gaps(q.prompt)
         if n_gaps == 0:
-            st.warning("⚠️ Insira `[ ]` no texto acima para criar lacunas.")
+            st.warning("⚠️ O texto não tem lacunas. Use o botão **Inserir [ ]** ou escreva parêntesis retos.")
         else:
-            # Sincronizar lista de blanks
-            current_len = len(q.blanks)
-            if current_len < n_gaps:
-                for i in range(current_len, n_gaps):
-                    q.blanks.append(Blank(bid=new_id("b"), label=f"L{i+1}", answers=[""], distractors=[]))
-            elif current_len > n_gaps:
-                q.blanks = q.blanks[:n_gaps]
+            while len(q.blanks) < n_gaps:
+                q.blanks.append(Blank(new_id("b"), f"L{len(q.blanks)+1}", [""], []))
+            q.blanks = q.blanks[:n_gaps]
 
-            # Mostrar Grelha
-            cols = st.columns(2 if is_dropdown else 3)
+            is_mc = (mt == "cloze_mc")
+            cols = st.columns(2 if is_mc else 3)
+            
             for i, b in enumerate(q.blanks):
                 with cols[i % len(cols)]:
                     with st.container(border=True):
                         st.markdown(f"**Lacuna {i+1}**")
-                        # Resposta Correta
-                        ans_val = b.answers[0] if b.answers else ""
-                        new_ans = st.text_input(f"✅ Correta", value=ans_val, key=f"ans_{b.bid}")
-                        b.answers = [new_ans]
-                        
-                        # Se for Menu, pedir distratores
-                        if is_dropdown:
-                            dist_val = "; ".join(b.distractors)
-                            new_dist = st.text_input(f"❌ Erradas (sep. por ';')", value=dist_val, key=f"dist_{b.bid}")
-                            b.distractors = [d.strip() for d in new_dist.split(";") if d.strip()]
+                        b.answers[0] = st.text_input("Correta", value=b.answers[0] if b.answers else "", key=f"ans_{b.bid}")
+                        if is_mc:
+                            dist_str = "; ".join(b.distractors)
+                            dists = st.text_input("Erradas (sep. por ';')", value=dist_str, key=f"dist_{b.bid}", placeholder="Ex: op1; op2")
+                            b.distractors = [d.strip() for d in dists.split(";") if d.strip()]
 
-    # === B. ESCOLHA MÚLTIPLA ===
+    # B. ESCOLHA MÚLTIPLA (Lógica Corrigida)
     elif mt.startswith("multichoice"):
-        st.divider()
-        st.markdown("### 2. Opções de Resposta")
-        
         for i, opt in enumerate(q.options):
-            c_del, c_txt, c_corr = st.columns([0.5, 4, 1.5])
-            if c_del.button("🗑️", key=f"del_mc_{opt.oid}"):
+            c1, c2, c3 = st.columns([0.5, 4, 1])
+            
+            # Botão Apagar
+            if c1.button("🗑️", key=f"d_mc_{opt.oid}"):
                 q.options.pop(i)
                 st.rerun()
             
-            opt.text = c_txt.text_input(f"Opção {i+1}", value=opt.text, key=f"txt_mc_{opt.oid}", label_visibility="collapsed")
+            # Texto da Opção
+            opt.text = c2.text_input(f"Opção {i+1}", value=opt.text, label_visibility="collapsed", key=f"t_mc_{opt.oid}")
             
-            # Checkbox para correta
+            # Checkbox de Correção
+            # Nota: Usamos o session_state diretamente para forçar a atualização visual se necessário
+            chk_key = f"c_mc_{opt.oid}"
+            is_chk = c3.checkbox("Correta", value=opt.is_correct, key=chk_key)
+            
             if mt == "multichoice_single":
-                # Lógica de Radio Button simulada
-                is_checked = c_corr.checkbox("Correta", value=opt.is_correct, key=f"chk_mc_{opt.oid}")
-                if is_checked and not opt.is_correct:
-                    # Desmarcar as outras
-                    for o in q.options: o.is_correct = False
+                # Lógica Exclusiva (Só uma pode ser verdadeira)
+                if is_chk and not opt.is_correct:
+                    # O utilizador acabou de marcar esta caixa.
+                    # 1. Marca esta como verdadeira
                     opt.is_correct = True
+                    # 2. Desmarca TODAS as outras (no Modelo e na Visualização)
+                    for o in q.options:
+                        if o.oid != opt.oid:
+                            o.is_correct = False
+                            # Forçar o visual a desmarcar
+                            if f"c_mc_{o.oid}" in st.session_state:
+                                st.session_state[f"c_mc_{o.oid}"] = False
                     st.rerun()
+                elif not is_chk and opt.is_correct:
+                    # O utilizador desmarcou a opção ativa
+                    opt.is_correct = False
             else:
-                opt.is_correct = c_corr.checkbox("Correta", value=opt.is_correct, key=f"chk_mc_{opt.oid}")
-
+                # Lógica Simples (Várias podem ser verdadeiras)
+                opt.is_correct = is_chk
+        
         if st.button("➕ Adicionar Opção"):
             q.options.append(ChoiceOption(new_id("o"), ""))
             st.rerun()
 
-    # === C. VERDADEIRO / FALSO (MATRIZ) ===
+    # C. VERDADEIRO / FALSO
     elif mt == "truefalse":
-        st.divider()
-        st.markdown("### 2. Afirmações")
-        
-        c_help, c_toggle = st.columns([2, 2])
-        c_help.info("Adicione frases para o aluno classificar.")
-        q.tf_require_correction = c_toggle.toggle("Pedir correção das falsas?", value=q.tf_require_correction)
-
-        if not q.options:
-            st.warning("Adicione pelo menos uma afirmação.")
-
+        q.tf_require_correction = st.toggle("Pedir correção das Falsas?", value=q.tf_require_correction)
         for i, opt in enumerate(q.options):
             with st.container(border=True):
-                c_del, c_txt, c_rad = st.columns([0.5, 4, 2])
-                if c_del.button("🗑️", key=f"del_vf_{opt.oid}"):
+                c1, c2, c3 = st.columns([0.5, 4, 2])
+                if c1.button("🗑️", key=f"d_vf_{opt.oid}"):
                     q.options.pop(i)
                     st.rerun()
-                
-                opt.text = c_txt.text_input("Frase", value=opt.text, key=f"txt_vf_{opt.oid}", label_visibility="collapsed")
-                
-                sel = c_rad.radio("Gabarito", ["V", "F"], 
-                                  index=0 if opt.is_correct else 1, 
-                                  key=f"rad_vf_{opt.oid}", horizontal=True, label_visibility="collapsed")
+                opt.text = c2.text_input("Frase", value=opt.text, label_visibility="collapsed", key=f"t_vf_{opt.oid}")
+                sel = c3.radio("Gabarito", ["V", "F"], index=0 if opt.is_correct else 1, horizontal=True, label_visibility="collapsed", key=f"r_vf_{opt.oid}")
                 opt.is_correct = (sel == "V")
-        
-        if st.button("➕ Adicionar Afirmação"):
+        if st.button("➕ Adicionar Frase"):
             q.options.append(ChoiceOption(new_id("o"), "", True))
             st.rerun()
 
-    # === D. ASSOCIAÇÃO ===
+    # D. MATCHING
     elif mt == "matching":
-        st.divider()
-        st.markdown("### 2. Pares de Associação")
         for i, p in enumerate(q.pairs):
-            c_del, c_left, c_right = st.columns([0.5, 2.5, 2.5])
-            if c_del.button("🗑️", key=f"del_mat_{p.pid}"):
+            c1, c2, c3 = st.columns([0.5, 2.5, 2.5])
+            if c1.button("🗑️", key=f"d_mat_{p.pid}"):
                 q.pairs.pop(i)
                 st.rerun()
-            p.left = c_left.text_input("Pergunta (A)", value=p.left, key=f"l_{p.pid}", label_visibility="collapsed")
-            p.right = c_right.text_input("Resposta (B)", value=p.right, key=f"r_{p.pid}", label_visibility="collapsed")
-        
+            p.left = c2.text_input("A", value=p.left, label_visibility="collapsed", key=f"pl_{p.pid}", placeholder="Pergunta")
+            p.right = c3.text_input("B", value=p.right, label_visibility="collapsed", key=f"pr_{p.pid}", placeholder="Resposta")
         if st.button("➕ Adicionar Par"):
             q.pairs.append(MatchPair(new_id("p"), "", ""))
             st.rerun()
 
-    # === E. TEXTO DE APOIO ===
-    elif mt == "description":
-        st.info("ℹ️ Este item serve apenas para mostrar texto ou imagens. Não tem perguntas nem notas.")
+    elif mt == "shortanswer":
+        st.info("Insira as respostas aceites (ex: 'Lisboa', 'lisboa').")
+        current = "; ".join(q.accepted_answers)
+        new_val = st.text_area("Respostas (separar por ;)", value=current)
+        q.accepted_answers = [x.strip() for x in new_val.split(";") if x.strip()]
 
-    # --- RODAPÉ: GUARDAR ---
+    # --- BLOCO 4: PRÉ-VISUALIZAÇÃO (CLEAN) ---
     st.divider()
-    c_save, c_save_new = st.columns(2)
+    st.subheader("Pré-visualização")
     
-    if c_save.button("💾 Guardar Alterações", type="primary", use_container_width=True):
-        # Lógica de salvar
+    # Container com borda para simular "papel" branco
+    with st.container(border=True):
+        tab1, tab2 = st.tabs(["Vista do Aluno", "Vista do Professor"])
+        
+        with tab1:
+            if mt == "cloze":
+                preview_text = q.prompt.replace("[ ]", " `[ ________ ]` ")
+                st.markdown(preview_text)
+            elif mt == "cloze_mc":
+                preview_text = q.prompt.replace("[ ]", " `[ Selecionar... 🔽 ]` ")
+                st.markdown(preview_text)
+            elif "multichoice" in mt:
+                st.markdown(q.prompt)
+                for o in q.options:
+                    st.markdown(f"- ⚪ {o.text}")
+            elif mt == "truefalse":
+                st.markdown(q.prompt)
+                st.write("---")
+                for o in q.options:
+                    st.markdown(f"- {o.text} **(V / F)**")
+            elif mt == "matching":
+                st.markdown(q.prompt)
+                st.write("---")
+                c_a, c_b = st.columns(2)
+                with c_a: 
+                    for p in q.pairs: st.markdown(f"- {p.left}")
+                with c_b:
+                    st.markdown("*(Menu de opções)*")
+            else:
+                st.markdown(q.prompt)
+
+        with tab2:
+            if mt in ["cloze", "cloze_mc"]:
+                st.markdown("**Soluções:**")
+                for i, b in enumerate(q.blanks):
+                    st.markdown(f"{i+1}. **{b.answers[0] if b.answers else '?'}**")
+            elif "multichoice" in mt:
+                for o in q.options:
+                    mark = "✅" if o.is_correct else "❌"
+                    st.markdown(f"{mark} {o.text}")
+            elif mt == "truefalse":
+                for o in q.options:
+                    ans = "VERDADEIRO" if o.is_correct else "FALSO"
+                    st.markdown(f"- {o.text} -> **{ans}**")
+            elif mt == "matching":
+                for p in q.pairs:
+                    st.markdown(f"- {p.left} 🔗 **{p.right}**")
+
+    # --- AÇÕES FINAIS ---
+    st.divider()
+    col_save, col_next = st.columns(2)
+    
+    # 1. Guardar e Sair
+    if col_save.button("💾 Guardar e Sair", type="primary", use_container_width=True):
+        # LÓGICA INTEGRADA (SEM FUNÇÃO EXTERNA)
         if st.session_state.active_qid:
-            # Atualizar existente
-            for i, existing_q in enumerate(ta.questions):
+            for i, existing_q in enumerate(st.session_state.ta.questions):
                 if existing_q.qid == st.session_state.active_qid:
-                    ta.questions[i] = copy.deepcopy(q)
+                    st.session_state.ta.questions[i] = copy.deepcopy(q)
                     break
         else:
-            # Adicionar nova
-            ta.questions.append(copy.deepcopy(q))
-        
+            st.session_state.ta.questions.append(copy.deepcopy(q))
+            
         del st.session_state.draft_q
         st.session_state.active_view = "Editor de Ficha"
         st.session_state.active_qid = None
         st.rerun()
-    
-    if c_save_new.button("💾 Guardar e Criar Nova", use_container_width=True):
-        # Adicionar a atual à lista
+
+    # 2. Guardar e Criar Seguinte
+    if col_next.button("⏩ Guardar e Criar Seguinte", help="Guarda e abre nova do mesmo tipo", use_container_width=True):
+        # LÓGICA INTEGRADA (SEM FUNÇÃO EXTERNA)
         if st.session_state.active_qid:
-            for i, existing_q in enumerate(ta.questions):
+            for i, existing_q in enumerate(st.session_state.ta.questions):
                 if existing_q.qid == st.session_state.active_qid:
-                    ta.questions[i] = copy.deepcopy(q)
+                    st.session_state.ta.questions[i] = copy.deepcopy(q)
                     break
         else:
-            ta.questions.append(copy.deepcopy(q))
-        
-        # Preparar a próxima (Limpar campos mas manter tipo)
-        next_q = Question(new_id("q"), q.ui_type, q.moodle_type, prompt="", section=q.section)
-        # Se for V/F ou Matching, inicializar listas
-        if next_q.moodle_type == "truefalse":
-            next_q.options = [ChoiceOption(new_id("o"), "", True)]
-        
+            st.session_state.ta.questions.append(copy.deepcopy(q))
+
+        # PREPARAR A PRÓXIMA
+        next_q = Question(
+            qid=new_id("q"), ui_type=q.ui_type, moodle_type=q.moodle_type,
+            prompt="", section=q.section, meta=copy.deepcopy(q.meta)
+        )
+        if "multichoice" in q.moodle_type:
+            next_q.options = [ChoiceOption(new_id("o"), ""), ChoiceOption(new_id("o"), "")]
+        elif q.moodle_type == "truefalse":
+            next_q.options = [ChoiceOption(new_id("o"), "Verdadeiro", True), ChoiceOption(new_id("o"), "Falso", False)]
+        elif q.moodle_type == "matching":
+            next_q.pairs = [MatchPair(new_id("p"), "", "")]
+            
         st.session_state.draft_q = next_q
-        st.session_state.active_qid = None # Passa a ser uma criação nova
+        st.session_state.active_qid = None 
         st.rerun()
 
 

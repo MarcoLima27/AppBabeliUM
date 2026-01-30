@@ -48,19 +48,26 @@ def validate_ficha(ta: TA) -> List[ValidationIssue]:
                     issues.append(ValidationIssue("ERRO", f"{base_where} > Lacuna {b_idx}", "Lacuna sem resposta correta definida.", qid=q.qid))
 
         elif mt.startswith("multichoice"):
-            opts = [o for o in q.options if o.text.strip()]
-            if len(opts) < 2:
-                issues.append(ValidationIssue("ERRO", base_where, "Requer pelo menos 2 opções preenchidas.", qid=q.qid))
+            # Verifica se há texto nas opções
+            opts_with_text = [o for o in q.options if o.text.strip()]
+            if len(opts_with_text) < 2:
+                issues.append(ValidationIssue("ERRO", base_where, "A questão precisa de pelo menos 2 opções com texto.", qid=q.qid))
             
-            correct = [o for o in q.options if o.is_correct and o.text.strip()]
+            # Verifica quais estão marcadas como corretas (mesmo sem texto)
+            marked_correct = [o for o in q.options if o.is_correct]
             
-            if mt == "multichoice_single":
-                if len(correct) != 1:
-                    issues.append(ValidationIssue("ERRO", base_where, "Tem de existir exatamente 1 opção correta.", qid=q.qid))
-            else: # Multi
-                if len(correct) < 1:
-                    issues.append(ValidationIssue("ERRO", base_where, "Selecione pelo menos 1 opção correta.", qid=q.qid))
-
+            if not marked_correct:
+                 issues.append(ValidationIssue("ERRO", base_where, "Nenhuma opção marcada como correta.", qid=q.qid))
+            else:
+                # Se tem marcadas, verificamos se essas marcadas têm texto
+                correct_with_text = [o for o in marked_correct if o.text.strip()]
+                if not correct_with_text:
+                    issues.append(ValidationIssue("ERRO", base_where, "A opção correta não tem texto.", qid=q.qid))
+                
+                # Validação específica de Single/Multi
+                if mt == "multichoice_single" and len(marked_correct) > 1:
+                     issues.append(ValidationIssue("ERRO", base_where, "Neste tipo só pode haver 1 correta.", qid=q.qid))
+                     
         elif mt == "truefalse":
             # Agora valida a lista de frases (V/F Múltiplo)
             valid_opts = [o for o in q.options if o.text.strip()]
